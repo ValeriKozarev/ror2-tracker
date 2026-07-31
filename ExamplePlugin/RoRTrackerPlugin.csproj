@@ -13,6 +13,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="..\..\..\..\..\..\Steam\userdata\80402371\632360\remote\UserProfiles\62675123-06c8-42f2-bfe1-e42e2f824fe5.xml" Link="Resources\62675123-06c8-42f2-bfe1-e42e2f824fe5.xml" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BepInEx.Analyzers" Version="1.0.*">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -73,6 +77,10 @@
       <HintPath>libs\Zio.dll</HintPath>
       <Private>false</Private>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Resources\" />
   </ItemGroup>
 
 </Project>

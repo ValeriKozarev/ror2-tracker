@@ -1,6 +1,6 @@
 ﻿using BepInEx.Logging;
 
-namespace ExamplePlugin
+namespace RoRTracker
 {
     internal static class Log
     {
