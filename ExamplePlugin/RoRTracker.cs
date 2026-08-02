@@ -42,6 +42,8 @@ namespace RoRTracker
             On.RoR2.Run.Awake += Run_Awake;
             //subscribe our HUD_Awake hook to the HUD.ActivateScoreboard method
             On.RoR2.UI.HUD.ActivateScoreboard += HUD_ActivateScoreboard;
+
+            //TODO: maybe we want to create a new logbook page or similar that is just for the pending unlocks so you can view that from the main menu as well?
         }
 
         #region Hooks
@@ -83,6 +85,7 @@ namespace RoRTracker
             }
 
             //unsubscribe so we don't try to recompute this list every frame
+            //TODO: we probably do want SOME recompute logic to capture if you completed a challenge? maybe another hook?
             On.RoR2.Run.Update -= Run_Update;
         }
 
@@ -115,6 +118,9 @@ namespace RoRTracker
             layout.spacing = 4f;
 
             Log.Info("Begin adding in the unlocks to the UI:");
+            //TODO: probably want to adding scrolling or pagination or something
+            //TODO: maybe add auto-filtering for what content we care about? eg. item unlocks, skills and skins and then also filter down to the relevant character?
+            //TODO: it would be good to add tracking or something so we can just have a few we care about (maybe track up to 5 at a time?)
 
             foreach (UnlockableDef def in pending)
             {
