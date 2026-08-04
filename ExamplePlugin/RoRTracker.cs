@@ -30,6 +30,8 @@ namespace RoRTracker
         public const string PluginVersion = "0.0.1";
 
         List<UnlockableDef> pending = new List<UnlockableDef>();
+        GameObject pendingUnlocksPanel;
+        bool panelBuilt = false;
         UserProfile profile;
 
         //The Awake() method is run at the very start of the Unity Lifecycle when the game is initialized.
@@ -42,6 +44,7 @@ namespace RoRTracker
             On.RoR2.Run.Awake += Run_Awake;
             //subscribe our HUD_Awake hook to the HUD.ActivateScoreboard method
             On.RoR2.UI.HUD.ActivateScoreboard += HUD_ActivateScoreboard;
+            On.RoR2.UI.HUD.DeactivateScoreboard += HUD_DeactivateScoreboard;
 
             //TODO: maybe we want to create a new logbook page or similar that is just for the pending unlocks so you can view that from the main menu as well?
         }
@@ -59,7 +62,7 @@ namespace RoRTracker
         {
             orig.Invoke(self);
 
-            // try to make sure everything is fully loaded
+            //try to make sure everything is fully loaded, TODO: is there a better way to do this?
             if (RoR2.Run.instance.time < 5)
                 return;
             
@@ -93,8 +96,19 @@ namespace RoRTracker
         {
             Log.Info("TOP OF HUD_ACTIVATE_SCOREBOARD");
             orig.Invoke(self);
-            Log.Info($"HUD_ACTIVATE_SCOREBOARD HOOK: {pending.Count} pending unlocks for user {profile.name}.");
-            this.BuildPendingUnlocksPanel(self);
+            if (!panelBuilt)
+            {
+                Log.Info($"HUD_ACTIVATE_SCOREBOARD HOOK: {pending.Count} pending unlocks for user {profile.name}.");
+                BuildPendingUnlocksPanel(self);
+                panelBuilt = true;
+            }
+            pendingUnlocksPanel?.SetActive(true);
+        }
+
+        private void HUD_DeactivateScoreboard(On.RoR2.UI.HUD.orig_DeactivateScoreboard orig, RoR2.UI.HUD self)
+        {
+            orig.Invoke(self);
+            pendingUnlocksPanel?.SetActive(false);
         }
         #endregion
 
@@ -102,40 +116,74 @@ namespace RoRTracker
         {
             Log.Info("Begin building pending unlocks panel.");
             GameObject panel = new GameObject("PendingUnlocksPanel");
-            panel.transform.SetParent(hud.scoreboardPanel.transform, false);
+            panel.transform.SetParent(hud.mainContainer.transform, false);
 
-            //create the parent RectTransform and set its anchors, pivot, position, and size. our content will go within
+            //create the parent container for all of our UI that appears when you Tab in-game
             RectTransform rt = panel.AddComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0f, 0f);
-            rt.anchorMax = new Vector2(1f, 0f);
-            rt.pivot = new Vector2(0.5f, 1f);
-            rt.anchoredPosition = new Vector2(0f, -20f);
-            rt.sizeDelta = new Vector2(0f, 200f);
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f,0.5f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = new Vector2(400f, 200f);
 
-            //this lets us stack the text entries per unlock vertically
+            //then this lets us stack the text entries per unlock vertically
             VerticalLayoutGroup layout = panel.AddComponent<VerticalLayoutGroup>();
             layout.childForceExpandHeight = false;
             layout.spacing = 4f;
+            layout.childControlWidth = true;
+            layout.childForceExpandWidth = true;
+            layout.childControlHeight = true;
+
+            pendingUnlocksPanel = panel;
+            panel.SetActive(false);
 
             Log.Info("Begin adding in the unlocks to the UI:");
             //TODO: probably want to adding scrolling or pagination or something
             //TODO: maybe add auto-filtering for what content we care about? eg. item unlocks, skills and skins and then also filter down to the relevant character?
             //TODO: it would be good to add tracking or something so we can just have a few we care about (maybe track up to 5 at a time?)
 
-            foreach (UnlockableDef def in pending)
+            for (int i = 0; i < 5; i++)
             {
-                Log.Info($"Adding entry for {def.cachedName ?? "Unlockable"}");
-                GameObject entry = new GameObject(def.cachedName ?? "Unlockable");
-                entry.transform.SetParent(panel.transform, false);
+                UnlockableDef def = pending[i];
 
-                TextMeshProUGUI text = entry.AddComponent<TextMeshProUGUI>();
-                text.text = Language.GetString(def.nameToken);
-                text.fontSize = 14f;
-                text.color = Color.white;
+                // TODO: it would be nice to make this UI a bit better, maybe more like a card
+                // for that I think we would want AchievementDef.GetUnachievedIcon(), the UnlockableDef.CachedName, and the AchievementDef.DescriptionToken
+                Log.Info($"Adding entry for {def.cachedName ?? "Unlockable"}");
+
+                // name comes from the UnlockableDef
+                GameObject unlockName = new GameObject(def.cachedName ?? "Unlockable");
+                unlockName.transform.SetParent(panel.transform, false);
+                LayoutElement unlockNameLayout = unlockName.AddComponent<LayoutElement>();
+                unlockNameLayout.preferredHeight = 16f;
+                TextMeshProUGUI unlockNameText = unlockName.AddComponent<TextMeshProUGUI>();
+                unlockNameText.text = Language.GetString(def.nameToken);
+                unlockNameText.fontSize = 14f;
+                unlockNameText.color = Color.white;
+                unlockNameText.enableWordWrapping = false;
+
+                // desc comes from the related AchievementDef
+                AchievementDef achievement = AchievementManager.GetAchievementDefFromUnlockable(def.cachedName);
+                if (achievement == null)        
+                {
+                    Log.Info($"WARNING: No achievement found for {def.cachedName ?? "Unlockable"}"); // TODO: not sure if this is the correct lookup or not 
+                    continue;
+                }
+                GameObject unlockDesc = new GameObject(achievement.descriptionToken ?? "How to Unlock");
+                unlockDesc.transform.SetParent(panel.transform, false);
+                LayoutElement unlockDescLayout = unlockDesc.AddComponent<LayoutElement>();
+                unlockDescLayout.preferredHeight = 14f;
+                TextMeshProUGUI unlockDescText = unlockDesc.AddComponent<TextMeshProUGUI>();
+                unlockDescText.text = Language.GetString(achievement.descriptionToken);
+                unlockDescText.fontSize = 12f;
+                unlockDescText.color = Color.gray;
+                unlockDescText.enableWordWrapping = true;
             }
         }
     }
 }
+
+
+
 
 
 
