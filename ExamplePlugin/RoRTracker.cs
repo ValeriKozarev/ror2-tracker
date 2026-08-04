@@ -115,68 +115,104 @@ namespace RoRTracker
         private void BuildPendingUnlocksPanel(RoR2.UI.HUD hud)
         {
             Log.Info("Begin building pending unlocks panel.");
-            GameObject panel = new GameObject("PendingUnlocksPanel");
-            panel.transform.SetParent(hud.mainContainer.transform, false);
 
-            //create the parent container for all of our UI that appears when you Tab in-game
-            RectTransform rt = panel.AddComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f,0.5f);
+            pendingUnlocksPanel = new GameObject("PendingUnlocksPanel");
+            pendingUnlocksPanel.transform.SetParent(hud.mainContainer.transform, false);
+
+            RectTransform rt = pendingUnlocksPanel.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0.4f);
+            rt.anchorMax = new Vector2(0.5f, 0.4f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = Vector2.zero;
-            rt.sizeDelta = new Vector2(400f, 200f);
+            rt.sizeDelta = new Vector2(560f, 340f);
 
-            //then this lets us stack the text entries per unlock vertically
-            VerticalLayoutGroup layout = panel.AddComponent<VerticalLayoutGroup>();
-            layout.childForceExpandHeight = false;
-            layout.spacing = 4f;
-            layout.childControlWidth = true;
-            layout.childForceExpandWidth = true;
-            layout.childControlHeight = true;
+            VerticalLayoutGroup outerLayout = pendingUnlocksPanel.AddComponent<VerticalLayoutGroup>();
+            outerLayout.childForceExpandHeight = false;
+            outerLayout.childForceExpandWidth = true;
+            outerLayout.childControlWidth = true;
+            outerLayout.childControlHeight = true;
+            outerLayout.spacing = 9f; // a bit more room between cards than between text lines
 
-            pendingUnlocksPanel = panel;
-            panel.SetActive(false);
+            pendingUnlocksPanel.SetActive(false);
 
             Log.Info("Begin adding in the unlocks to the UI:");
-            //TODO: probably want to adding scrolling or pagination or something
-            //TODO: maybe add auto-filtering for what content we care about? eg. item unlocks, skills and skins and then also filter down to the relevant character?
-            //TODO: it would be good to add tracking or something so we can just have a few we care about (maybe track up to 5 at a time?)
 
             for (int i = 0; i < 5; i++)
             {
                 UnlockableDef def = pending[i];
-
-                // TODO: it would be nice to make this UI a bit better, maybe more like a card
-                // for that I think we would want AchievementDef.GetUnachievedIcon(), the UnlockableDef.CachedName, and the AchievementDef.DescriptionToken
                 Log.Info($"Adding entry for {def.cachedName ?? "Unlockable"}");
 
-                // name comes from the UnlockableDef
-                GameObject unlockName = new GameObject(def.cachedName ?? "Unlockable");
-                unlockName.transform.SetParent(panel.transform, false);
-                LayoutElement unlockNameLayout = unlockName.AddComponent<LayoutElement>();
-                unlockNameLayout.preferredHeight = 16f;
-                TextMeshProUGUI unlockNameText = unlockName.AddComponent<TextMeshProUGUI>();
-                unlockNameText.text = Language.GetString(def.nameToken);
-                unlockNameText.fontSize = 14f;
-                unlockNameText.color = Color.white;
-                unlockNameText.enableWordWrapping = false;
-
-                // desc comes from the related AchievementDef
                 AchievementDef achievement = AchievementManager.GetAchievementDefFromUnlockable(def.cachedName);
-                if (achievement == null)        
+                if (achievement == null)
                 {
-                    Log.Info($"WARNING: No achievement found for {def.cachedName ?? "Unlockable"}"); // TODO: not sure if this is the correct lookup or not 
+                    Log.Info($"WARNING: No achievement found for {def.cachedName ?? "Unlockable"}");
                     continue;
                 }
-                GameObject unlockDesc = new GameObject(achievement.descriptionToken ?? "How to Unlock");
-                unlockDesc.transform.SetParent(panel.transform, false);
-                LayoutElement unlockDescLayout = unlockDesc.AddComponent<LayoutElement>();
-                unlockDescLayout.preferredHeight = 14f;
-                TextMeshProUGUI unlockDescText = unlockDesc.AddComponent<TextMeshProUGUI>();
-                unlockDescText.text = Language.GetString(achievement.descriptionToken);
-                unlockDescText.fontSize = 12f;
-                unlockDescText.color = Color.gray;
-                unlockDescText.enableWordWrapping = true;
+
+                // --- Card container ---
+                GameObject card = new GameObject("Card_" + (def.cachedName ?? "Unlockable"));
+                card.transform.SetParent(pendingUnlocksPanel.transform, false);
+
+                LayoutElement cardLayout = card.AddComponent<LayoutElement>();
+                cardLayout.preferredHeight = 73f; // room for icon + two lines of text
+
+                Image cardBg = card.AddComponent<Image>();
+                cardBg.color = new Color(0f, 0f, 0f, 0.6f); // dark semi-transparent backing, common RoR2 UI pattern
+
+                HorizontalLayoutGroup cardInnerLayout = card.AddComponent<HorizontalLayoutGroup>();
+                cardInnerLayout.childForceExpandWidth = false;
+                cardInnerLayout.childForceExpandHeight = true;
+                cardInnerLayout.childControlWidth = true;
+                cardInnerLayout.childControlHeight = true;
+                cardInnerLayout.padding = new RectOffset(9, 9, 9, 9);
+                cardInnerLayout.spacing = 11f;
+
+                // --- Icon ---
+                GameObject iconGO = new GameObject("Icon");
+                iconGO.transform.SetParent(card.transform, false);
+
+                LayoutElement iconLayout = iconGO.AddComponent<LayoutElement>();
+                iconLayout.preferredWidth = 55f;
+                iconLayout.preferredHeight = 55f;
+                iconLayout.flexibleWidth = 0f; // fixed size, don't stretch
+
+                Image iconImage = iconGO.AddComponent<Image>();
+                iconImage.sprite = achievement.GetUnachievedIcon();
+                iconImage.preserveAspect = true;
+
+                // --- Text column (title + description stacked) ---
+                GameObject textColumn = new GameObject("TextColumn");
+                textColumn.transform.SetParent(card.transform, false);
+
+                LayoutElement textColumnLayout = textColumn.AddComponent<LayoutElement>();
+                textColumnLayout.flexibleWidth = 1f; // takes remaining width after the fixed-size icon
+
+                VerticalLayoutGroup textColumnLayoutGroup = textColumn.AddComponent<VerticalLayoutGroup>();
+                textColumnLayoutGroup.childForceExpandWidth = true;
+                textColumnLayoutGroup.childForceExpandHeight = false;
+                textColumnLayoutGroup.childControlWidth = true;
+                textColumnLayoutGroup.childControlHeight = true;
+                textColumnLayoutGroup.spacing = 2f;
+
+                GameObject titleGO = new GameObject("Title");
+                titleGO.transform.SetParent(textColumn.transform, false);
+                LayoutElement titleLayout = titleGO.AddComponent<LayoutElement>();
+                titleLayout.preferredHeight = 23f;
+                TextMeshProUGUI titleText = titleGO.AddComponent<TextMeshProUGUI>();
+                titleText.text = Language.GetString(def.nameToken);
+                titleText.fontSize = 16f;
+                titleText.color = Color.white;
+                titleText.enableWordWrapping = false;
+
+                GameObject descGO = new GameObject("Description");
+                descGO.transform.SetParent(textColumn.transform, false);
+                LayoutElement descLayout = descGO.AddComponent<LayoutElement>();
+                descLayout.preferredHeight = 37f;
+                TextMeshProUGUI descText = descGO.AddComponent<TextMeshProUGUI>();
+                descText.text = Language.GetString(achievement.descriptionToken);
+                descText.fontSize = 14f;
+                descText.color = Color.gray;
+                descText.enableWordWrapping = true;
             }
         }
     }
