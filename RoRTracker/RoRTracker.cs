@@ -1,13 +1,9 @@
 using BepInEx;
-using On.RoR2.UI;
-using R2API;
 using RoR2;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
 using UnityEngine.UI;
-using static Rewired.Utils.Classes.Utility.ObjectInstanceTracker;
 using UnlockableDef = RoR2.UnlockableDef;
 
 namespace RoRTracker
@@ -27,7 +23,7 @@ namespace RoRTracker
         public const string PluginGUID = PluginAuthor + "." + PluginName;
         public const string PluginAuthor = "Valerbear";
         public const string PluginName = "RoRTracker";
-        public const string PluginVersion = "0.0.1";
+        public const string PluginVersion = "0.1.0";
 
         List<UnlockableDef> pending = new List<UnlockableDef>();
         GameObject pendingUnlocksPanel;
