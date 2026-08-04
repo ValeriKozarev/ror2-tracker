@@ -42,7 +42,7 @@ namespace RoRTracker
 
             //subscribe our Run_Awake hook to the Run.Awake method from the game, we'll eventually have this load the data we need to display
             On.RoR2.Run.Awake += Run_Awake;
-            //subscribe our HUD_Awake hook to the HUD.ActivateScoreboard method
+            //subscribe our HUD_Awake hook to the HUD.ActivateScoreboard and HUD.DeactivateScoreboard methods
             On.RoR2.UI.HUD.ActivateScoreboard += HUD_ActivateScoreboard;
             On.RoR2.UI.HUD.DeactivateScoreboard += HUD_DeactivateScoreboard;
 
@@ -72,7 +72,7 @@ namespace RoRTracker
             for (UnlockableIndex unlockableIndex = (UnlockableIndex)0; unlockableIndex < (UnlockableIndex)UnlockableCatalog.indexToDefTable.Length; unlockableIndex++)
             {
                 Log.Info($"Building entry for index {unlockableIndex}");
-                UnlockableDef unlockable = UnlockableCatalog.indexToDefTable[(int)unlockableIndex]; // BepInEx should address these warnings automatically
+                UnlockableDef unlockable = UnlockableCatalog.indexToDefTable[(int)unlockableIndex]; // note: sounds like BepInEx addresses these warnings automatically
                 Log.Info($"Building entry for def at index {unlockableIndex}: {unlockable.cachedName}");
 
                 if (!profile.HasUnlockable(unlockable))
@@ -81,10 +81,9 @@ namespace RoRTracker
                 }
             }
 
-            Log.Info($"Found {pending.Count} pending unlocks for user {profile.name}.");
             if (pending.Count > 0)
             {
-                Log.Info($"First pending unlock is {pending[0].cachedName}");
+                Log.Info($"Identified {pending.Count} pending unlocks for user {profile.name}.");
             }
 
             //unsubscribe so we don't try to recompute this list every frame
@@ -94,31 +93,38 @@ namespace RoRTracker
 
         private void HUD_ActivateScoreboard(On.RoR2.UI.HUD.orig_ActivateScoreboard orig, RoR2.UI.HUD self)
         {
-            Log.Info("TOP OF HUD_ACTIVATE_SCOREBOARD");
             orig.Invoke(self);
+
+            //make sure the panel is built before we try to show it, and only build it once
             if (!panelBuilt)
             {
-                Log.Info($"HUD_ACTIVATE_SCOREBOARD HOOK: {pending.Count} pending unlocks for user {profile.name}.");
                 BuildPendingUnlocksPanel(self);
                 panelBuilt = true;
             }
+
             pendingUnlocksPanel?.SetActive(true);
         }
 
         private void HUD_DeactivateScoreboard(On.RoR2.UI.HUD.orig_DeactivateScoreboard orig, RoR2.UI.HUD self)
         {
             orig.Invoke(self);
+
+            //same as above, just for hiding the panel when the scoreboard is closed
             pendingUnlocksPanel?.SetActive(false);
         }
         #endregion
 
+        /// <summary>
+        /// Helper method that builds out the UI panel for the pending unlocks, displayed when you Tab during a game
+        /// </summary>
+        /// <param name="hud"></param>
         private void BuildPendingUnlocksPanel(RoR2.UI.HUD hud)
         {
-            Log.Info("Begin building pending unlocks panel.");
-
+            //we create and attach the panel to the mainContainer so it can be centered and have enough space
             pendingUnlocksPanel = new GameObject("PendingUnlocksPanel");
             pendingUnlocksPanel.transform.SetParent(hud.mainContainer.transform, false);
 
+            //this defines the spacing and sizing of the panel itself, and anchors it relative to the parent (which is mainContainer)
             RectTransform rt = pendingUnlocksPanel.AddComponent<RectTransform>();
             rt.anchorMin = new Vector2(0.5f, 0.4f);
             rt.anchorMax = new Vector2(0.5f, 0.4f);
@@ -126,38 +132,39 @@ namespace RoRTracker
             rt.anchoredPosition = Vector2.zero;
             rt.sizeDelta = new Vector2(560f, 340f);
 
+            //this says that the content within the panel (the children pending unlock cards) will be stacked vertically and spaced evenly
             VerticalLayoutGroup outerLayout = pendingUnlocksPanel.AddComponent<VerticalLayoutGroup>();
             outerLayout.childForceExpandHeight = false;
             outerLayout.childForceExpandWidth = true;
             outerLayout.childControlWidth = true;
             outerLayout.childControlHeight = true;
-            outerLayout.spacing = 9f; // a bit more room between cards than between text lines
+            outerLayout.spacing = 9f;
 
+            //start hidden, it will be shown when we open the Tab menu during a game
             pendingUnlocksPanel.SetActive(false);
 
-            Log.Info("Begin adding in the unlocks to the UI:");
-
+            //TODO: currently just taking the first 5 unlocks, adding manual tracking here from the user would be better
             for (int i = 0; i < 5; i++)
             {
+                //An UnlockableDef and an AchievementDef work together to give us the icon, title, and description for the unlock
                 UnlockableDef def = pending[i];
-                Log.Info($"Adding entry for {def.cachedName ?? "Unlockable"}");
 
                 AchievementDef achievement = AchievementManager.GetAchievementDefFromUnlockable(def.cachedName);
                 if (achievement == null)
                 {
-                    Log.Info($"WARNING: No achievement found for {def.cachedName ?? "Unlockable"}");
+                    Log.Info($"WARNING: No achievement found for {def.cachedName ?? "Unlockable"}"); //TODO: I am not totally sure how all the unlocks/achievements are keyed together but this mostly works
                     continue;
                 }
 
-                // --- Card container ---
-                GameObject card = new GameObject("Card_" + (def.cachedName ?? "Unlockable"));
+                //build out the card, trying to make this look the way that it does elsewhere in the game's UI (can't access the actual prefab from Unity) :P
+                GameObject card = new GameObject("Card_" + (def.cachedName ?? "Unlockable_" + i));
                 card.transform.SetParent(pendingUnlocksPanel.transform, false);
 
                 LayoutElement cardLayout = card.AddComponent<LayoutElement>();
-                cardLayout.preferredHeight = 73f; // room for icon + two lines of text
+                cardLayout.preferredHeight = 73f;
 
                 Image cardBg = card.AddComponent<Image>();
-                cardBg.color = new Color(0f, 0f, 0f, 0.6f); // dark semi-transparent backing, common RoR2 UI pattern
+                cardBg.color = new Color(0f, 0f, 0f, 0.6f); // we're just rendering a dark, semi-transparent rectangle to serve as the bgfor the card
 
                 HorizontalLayoutGroup cardInnerLayout = card.AddComponent<HorizontalLayoutGroup>();
                 cardInnerLayout.childForceExpandWidth = false;
@@ -167,26 +174,22 @@ namespace RoRTracker
                 cardInnerLayout.padding = new RectOffset(9, 9, 9, 9);
                 cardInnerLayout.spacing = 11f;
 
-                // --- Icon ---
+                //icon is just using the "unachieved icon" which is just the ? symbol
                 GameObject iconGO = new GameObject("Icon");
                 iconGO.transform.SetParent(card.transform, false);
-
                 LayoutElement iconLayout = iconGO.AddComponent<LayoutElement>();
                 iconLayout.preferredWidth = 55f;
                 iconLayout.preferredHeight = 55f;
-                iconLayout.flexibleWidth = 0f; // fixed size, don't stretch
-
+                iconLayout.flexibleWidth = 0f; // this prevents stretching the icon
                 Image iconImage = iconGO.AddComponent<Image>();
                 iconImage.sprite = achievement.GetUnachievedIcon();
                 iconImage.preserveAspect = true;
 
-                // --- Text column (title + description stacked) ---
+                //text is the name of the unlockable and the description of how to unlock it from the achievement, stacked vertically
                 GameObject textColumn = new GameObject("TextColumn");
                 textColumn.transform.SetParent(card.transform, false);
-
                 LayoutElement textColumnLayout = textColumn.AddComponent<LayoutElement>();
-                textColumnLayout.flexibleWidth = 1f; // takes remaining width after the fixed-size icon
-
+                textColumnLayout.flexibleWidth = 1f; // and then this makes it so the text stretches to fill the rest of the card
                 VerticalLayoutGroup textColumnLayoutGroup = textColumn.AddComponent<VerticalLayoutGroup>();
                 textColumnLayoutGroup.childForceExpandWidth = true;
                 textColumnLayoutGroup.childForceExpandHeight = false;
