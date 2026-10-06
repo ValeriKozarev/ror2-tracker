@@ -49,9 +49,9 @@ namespace RoRTracker
             //subscribe our HUD_Awake hook to the HUD.ActivateScoreboard and HUD.DeactivateScoreboard methods
             On.RoR2.UI.HUD.ActivateScoreboard += HUD_ActivateScoreboard;
             On.RoR2.UI.HUD.DeactivateScoreboard += HUD_DeactivateScoreboard;
-            
-            //subscribe to the Logbook's page-generation step so we can wrap the Challenge category's tile rendering
-            On.RoR2.UI.LogBook.LogBookController.GeneratePages += LogBookController_GeneratePages;
+
+            //our mod should fire when you view Challenges in the Logbook
+            On.RoR2.UI.LogBook.CategoryDef.InitializeChallenge += CatergoriyDef_InitializeChallenge;
             
             //BuildEntriesPage re-derives disablePointerClick/disableGamepadClick itself, after calling
             //initializeElementGraphics, based on per-slot logic that can undo the re-enable we do there
@@ -63,6 +63,11 @@ namespace RoRTracker
         }
 
         #region Hooks
+        private void CatergoriyDef_InitializeChallenge(On.RoR2.UI.LogBook.CategoryDef.orig_InitializeChallenge orig, GameObject tileObject, RoR2.UI.LogBook.Entry entry, RoR2.UI.LogBook.EntryStatus status, UserProfile viewerProfile)
+        {
+            orig.Invoke(tileObject, entry, status, viewerProfile);
+            ApplyAchievementTileTracking(tileObject, entry, status);
+        }
 
         private void HUD_ActivateScoreboard(On.RoR2.UI.HUD.orig_ActivateScoreboard orig, RoR2.UI.HUD self)
         {
@@ -84,34 +89,6 @@ namespace RoRTracker
             // panel may have been destroyed with the previous run's HUD, this helps us avoid any trouble. 
             if (pendingUnlocksPanel != null)
                 pendingUnlocksPanel.SetActive(false);
-        }
-
-        /// <summary>
-        /// Wraps the Challenge category's tiles so we can tack on our own click-to-track logic and highlight painting for each tile.
-        /// </summary>
-        private void LogBookController_GeneratePages(On.RoR2.UI.LogBook.LogBookController.orig_GeneratePages orig, RoR2.UI.LogBook.LogBookController self, UserProfile viewerProfile)
-        {
-            orig.Invoke(self, viewerProfile);
-
-            // make sure we only do this once per session instead of whenever the logbook is opened
-            if (categoriesWrapped)
-                return;
-            categoriesWrapped = true;
-
-            RoR2.UI.LogBook.CategoryDef[] categories = RoR2.UI.LogBook.LogBookController.categories;
-            if (categories == null)
-                return;
-
-            // wrap each category so we can tack on our own tracking logic at the end
-            foreach (RoR2.UI.LogBook.CategoryDef categoryDef in categories)
-            {
-                Action<GameObject, RoR2.UI.LogBook.Entry, RoR2.UI.LogBook.EntryStatus, UserProfile> original = categoryDef.initializeElementGraphics;
-                categoryDef.initializeElementGraphics = (tileObject, entry, status, viewerProfileForTile) =>
-                {
-                    original?.Invoke(tileObject, entry, status, viewerProfileForTile);
-                    ApplyAchievementTileTracking(tileObject, entry, status);
-                };
-            }
         }
 
         /// <summary>
