@@ -13,6 +13,8 @@ namespace RoRTracker
 
         private readonly ConfigEntry<string> storage;
         private readonly HashSet<string> tracked = new HashSet<string>();
+        // this will be the read-only copy that consuming code will get to see
+        public IReadOnlyCollection<string> TrackedIds => new List<string>(tracked);
 
         public TrackedChallenges(ConfigFile config)
         {

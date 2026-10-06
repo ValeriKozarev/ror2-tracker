@@ -6,7 +6,6 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
-using UnlockableDef = RoR2.UnlockableDef;
 
 namespace RoRTracker
 {
@@ -27,9 +26,7 @@ namespace RoRTracker
         public const string PluginName = "RoRTracker";
         public const string PluginVersion = "0.1.0";
 
-        List<UnlockableDef> pending = new List<UnlockableDef>();
         GameObject pendingUnlocksPanel;
-        UserProfile profile;
         TrackedChallenges trackedChallenges;
 
         // name and color of the highlight we add to each Logbook achievement tile
@@ -48,9 +45,6 @@ namespace RoRTracker
 
             //loads the persisted set of tracked challenges via BepInEx config
             trackedChallenges = new TrackedChallenges(Config);
-
-            //subscribe our Run_Awake hook to the Run.Awake method from the game, we'll eventually have this load the data we need to display
-            On.RoR2.Run.Awake += Run_Awake;
             
             //subscribe our HUD_Awake hook to the HUD.ActivateScoreboard and HUD.DeactivateScoreboard methods
             On.RoR2.UI.HUD.ActivateScoreboard += HUD_ActivateScoreboard;
@@ -69,46 +63,6 @@ namespace RoRTracker
         }
 
         #region Hooks
-        private void Run_Awake(On.RoR2.Run.orig_Awake orig, Run self)
-        {
-            orig.Invoke(self);
-
-            //Makes sure the Update Function is hooked at the start!
-            On.RoR2.Run.Update += Run_Update;
-        }
-
-        private void Run_Update(On.RoR2.Run.orig_Update orig, Run self)
-        {
-            orig.Invoke(self);
-
-            //try to make sure everything is fully loaded, TODO: is there a better way to do this?
-            if (RoR2.Run.instance.time < 5)
-                return;
-            
-            profile = LocalUserManager.GetFirstLocalUser().userProfile;
-
-            //iterate over the UnlockableCatalog to figure out what the user is still missing
-            for (UnlockableIndex unlockableIndex = (UnlockableIndex)0; unlockableIndex < (UnlockableIndex)UnlockableCatalog.indexToDefTable.Length; unlockableIndex++)
-            {
-                Log.Info($"Building entry for index {unlockableIndex}");
-                UnlockableDef unlockable = UnlockableCatalog.indexToDefTable[(int)unlockableIndex]; // note: sounds like BepInEx addresses these warnings automatically
-                Log.Info($"Building entry for def at index {unlockableIndex}: {unlockable.cachedName}");
-
-                if (!profile.HasUnlockable(unlockable))
-                {
-                    this.pending.Add(unlockable);
-                }
-            }
-
-            if (pending.Count > 0)
-            {
-                Log.Info($"Identified {pending.Count} pending unlocks for user {profile.name}.");
-            }
-
-            //unsubscribe so we don't try to recompute this list every frame
-            //TODO: we probably do want SOME recompute logic to capture if you completed a challenge? maybe another hook?
-            On.RoR2.Run.Update -= Run_Update;
-        }
 
         private void HUD_ActivateScoreboard(On.RoR2.UI.HUD.orig_ActivateScoreboard orig, RoR2.UI.HUD self)
         {
@@ -277,6 +231,9 @@ namespace RoRTracker
         /// <param name="hud"></param>
         private void BuildPendingUnlocksPanel(RoR2.UI.HUD hud)
         {
+            //load our challenges for populating the panel
+            IReadOnlyCollection<string> ids = trackedChallenges.TrackedIds;
+
             //we create and attach the panel to the mainContainer so it can be centered and have enough space
             pendingUnlocksPanel = new GameObject("PendingUnlocksPanel");
             pendingUnlocksPanel.transform.SetParent(hud.mainContainer.transform, false);
@@ -300,21 +257,19 @@ namespace RoRTracker
             //start hidden, it will be shown when we open the Tab menu during a game
             pendingUnlocksPanel.SetActive(false);
 
-            //TODO: currently just taking the first 5 unlocks, adding manual tracking here from the user would be better
-            for (int i = 0; i < 5; i++)
-            {
-                //An UnlockableDef and an AchievementDef work together to give us the icon, title, and description for the unlock
-                UnlockableDef def = pending[i];
+            int cardsBuilt = 0;
 
-                AchievementDef achievement = AchievementManager.GetAchievementDefFromUnlockable(def.cachedName);
+            foreach (string id in ids)
+            {
+                AchievementDef achievement = AchievementManager.GetAchievementDef(id);
                 if (achievement == null)
                 {
-                    Log.Info($"WARNING: No achievement found for {def.cachedName ?? "Unlockable"}"); //TODO: I am not totally sure how all the unlocks/achievements are keyed together but this mostly works
+                    Log.Info($"WARNING: No achievement found for {id}");
                     continue;
                 }
 
                 //build out the card, trying to make this look the way that it does elsewhere in the game's UI (can't access the actual prefab from Unity) :P
-                GameObject card = new GameObject("Card_" + (def.cachedName ?? "Unlockable_" + i));
+                GameObject card = new GameObject("Card_" + id);
                 card.transform.SetParent(pendingUnlocksPanel.transform, false);
 
                 LayoutElement cardLayout = card.AddComponent<LayoutElement>();
@@ -359,7 +314,7 @@ namespace RoRTracker
                 LayoutElement titleLayout = titleGO.AddComponent<LayoutElement>();
                 titleLayout.preferredHeight = 23f;
                 TextMeshProUGUI titleText = titleGO.AddComponent<TextMeshProUGUI>();
-                titleText.text = Language.GetString(def.nameToken);
+                titleText.text = Language.GetString(achievement.nameToken);
                 titleText.fontSize = 16f;
                 titleText.color = Color.white;
                 titleText.enableWordWrapping = false;
@@ -373,6 +328,24 @@ namespace RoRTracker
                 descText.fontSize = 14f;
                 descText.color = Color.gray;
                 descText.enableWordWrapping = true;
+
+                cardsBuilt++;
+            }
+
+            // this branch is when there are no tracked challenges
+            if (cardsBuilt == 0)
+            {
+                GameObject emptyGO = new GameObject("EmptyMessage");
+                emptyGO.transform.SetParent(pendingUnlocksPanel.transform, false);
+
+                LayoutElement emptyLayout = emptyGO.AddComponent<LayoutElement>();
+                emptyLayout.preferredHeight = 40f;
+
+                TextMeshProUGUI emptyText = emptyGO.AddComponent<TextMeshProUGUI>();
+                emptyText.text = "No challenges tracked. Pick some in the Logbook.";
+                emptyText.fontSize = 16f;
+                emptyText.color = Color.gray;
+                emptyText.alignment = TextAlignmentOptions.Center;
             }
         }
     }
