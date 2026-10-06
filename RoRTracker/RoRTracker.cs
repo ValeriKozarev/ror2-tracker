@@ -29,7 +29,6 @@ namespace RoRTracker
 
         List<UnlockableDef> pending = new List<UnlockableDef>();
         GameObject pendingUnlocksPanel;
-        bool panelBuilt = false;
         UserProfile profile;
         TrackedChallenges trackedChallenges;
 
@@ -52,11 +51,14 @@ namespace RoRTracker
 
             //subscribe our Run_Awake hook to the Run.Awake method from the game, we'll eventually have this load the data we need to display
             On.RoR2.Run.Awake += Run_Awake;
+            
             //subscribe our HUD_Awake hook to the HUD.ActivateScoreboard and HUD.DeactivateScoreboard methods
             On.RoR2.UI.HUD.ActivateScoreboard += HUD_ActivateScoreboard;
             On.RoR2.UI.HUD.DeactivateScoreboard += HUD_DeactivateScoreboard;
+            
             //subscribe to the Logbook's page-generation step so we can wrap the Challenge category's tile rendering
             On.RoR2.UI.LogBook.LogBookController.GeneratePages += LogBookController_GeneratePages;
+            
             //BuildEntriesPage re-derives disablePointerClick/disableGamepadClick itself, after calling
             //initializeElementGraphics, based on per-slot logic that can undo the re-enable we do there
             //(see the comment on the hook itself). Re-apply it once more after BuildEntriesPage fully finishes.
@@ -112,11 +114,10 @@ namespace RoRTracker
         {
             orig.Invoke(self);
 
-            //make sure the panel is built before we try to show it, and only build it once
-            if (!panelBuilt)
+            // make sure the panel is built before we try to show it, and only build it once per HUD
+            if (pendingUnlocksPanel == null)
             {
                 BuildPendingUnlocksPanel(self);
-                panelBuilt = true;
             }
 
             pendingUnlocksPanel?.SetActive(true);
@@ -126,8 +127,9 @@ namespace RoRTracker
         {
             orig.Invoke(self);
 
-            //same as above, just for hiding the panel when the scoreboard is closed
-            pendingUnlocksPanel?.SetActive(false);
+            // panel may have been destroyed with the previous run's HUD, this helps us avoid any trouble. 
+            if (pendingUnlocksPanel != null)
+                pendingUnlocksPanel.SetActive(false);
         }
 
         /// <summary>
@@ -189,7 +191,9 @@ namespace RoRTracker
         {
             // if not an achievement tile
             if (!(entry.extraData is AchievementDef achievementDef))
+            {
                 return;
+            }
 
             // if achievement is already completed
             if (status == RoR2.UI.LogBook.EntryStatus.Available || status == RoR2.UI.LogBook.EntryStatus.New)
