@@ -45,14 +45,17 @@ namespace RoRTracker
 
             //loads the persisted set of tracked challenges via BepInEx config
             trackedChallenges = new TrackedChallenges(Config);
-            
+
+            //when an achievement is completed, notify our mod's UI as well in case its being tracked
+            On.RoR2.UserProfile.AddAchievement += UserProfile_AddAchievement;
+
             //subscribe our HUD_Awake hook to the HUD.ActivateScoreboard and HUD.DeactivateScoreboard methods
             On.RoR2.UI.HUD.ActivateScoreboard += HUD_ActivateScoreboard;
             On.RoR2.UI.HUD.DeactivateScoreboard += HUD_DeactivateScoreboard;
 
             //our mod should fire when you view Challenges in the Logbook
             On.RoR2.UI.LogBook.CategoryDef.InitializeChallenge += CatergoriyDef_InitializeChallenge;
-            
+
             //BuildEntriesPage re-derives disablePointerClick/disableGamepadClick itself, after calling
             //initializeElementGraphics, based on per-slot logic that can undo the re-enable we do there
             //(see the comment on the hook itself). Re-apply it once more after BuildEntriesPage fully finishes.
@@ -63,6 +66,13 @@ namespace RoRTracker
         }
 
         #region Hooks
+        private void UserProfile_AddAchievement(On.RoR2.UserProfile.orig_AddAchievement orig, RoR2.UserProfile self, string achievementName, bool isExternal)
+        {
+            orig.Invoke(self, achievementName, isExternal);
+            
+            trackedChallenges.TryUntrack(achievementName);
+        }
+
         private void CatergoriyDef_InitializeChallenge(On.RoR2.UI.LogBook.CategoryDef.orig_InitializeChallenge orig, GameObject tileObject, RoR2.UI.LogBook.Entry entry, RoR2.UI.LogBook.EntryStatus status, UserProfile viewerProfile)
         {
             orig.Invoke(tileObject, entry, status, viewerProfile);
@@ -79,6 +89,7 @@ namespace RoRTracker
                 BuildPendingUnlocksPanel(self);
             }
 
+            PopulatePendingUnlocksPanel();
             pendingUnlocksPanel?.SetActive(true);
         }
 
@@ -208,9 +219,6 @@ namespace RoRTracker
         /// <param name="hud"></param>
         private void BuildPendingUnlocksPanel(RoR2.UI.HUD hud)
         {
-            //load our challenges for populating the panel
-            IReadOnlyCollection<string> ids = trackedChallenges.TrackedIds;
-
             //we create and attach the panel to the mainContainer so it can be centered and have enough space
             pendingUnlocksPanel = new GameObject("PendingUnlocksPanel");
             pendingUnlocksPanel.transform.SetParent(hud.mainContainer.transform, false);
@@ -233,6 +241,22 @@ namespace RoRTracker
 
             //start hidden, it will be shown when we open the Tab menu during a game
             pendingUnlocksPanel.SetActive(false);
+        }
+
+        private void PopulatePendingUnlocksPanel()
+        {
+            //first we need to clear the old UI cards from the panel, if they exist
+            Transform panelTransform = pendingUnlocksPanel.transform;
+            for (int i = panelTransform.childCount - 1; i >= 0; i--)
+            {
+                GameObject oldChild = panelTransform.GetChild(i).gameObject;
+                oldChild.SetActive(false); // layout groups ignore inactive children, so they stop taking up space this frame
+                Destroy(oldChild);         // actually removed at the end of the frame
+            }
+
+            //load our challenges for populating the panel
+            IReadOnlyCollection<string> ids = trackedChallenges.TrackedIds;
+            UserProfile profile = LocalUserManager.GetFirstLocalUser()?.userProfile;
 
             int cardsBuilt = 0;
 
@@ -242,6 +266,12 @@ namespace RoRTracker
                 if (achievement == null)
                 {
                     Log.Info($"WARNING: No achievement found for {id}");
+                    continue;
+                }
+                if (profile != null && profile.HasAchievement(id))
+                {
+                    Log.Info($"Achievement in tracked list {id} is already completed, skipping");
+                    trackedChallenges.TryUntrack(id); // remove it from the tracked list since it's already completed
                     continue;
                 }
 
@@ -327,10 +357,3 @@ namespace RoRTracker
         }
     }
 }
-
-
-
-
-
-
-
