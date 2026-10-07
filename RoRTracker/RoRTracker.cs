@@ -2,8 +2,10 @@ using BepInEx;
 using RoR2;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using TMPro;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
 using UnityEngine.Events;
 using UnityEngine.UI;
 
@@ -27,14 +29,15 @@ namespace RoRTracker
         public const string PluginVersion = "0.1.0";
 
         GameObject pendingUnlocksPanel;
+        GameObject trackingSummaryRow;
         TrackedChallenges trackedChallenges;
 
         // name and color of the highlight we add to each Logbook achievement tile
         const string TrackedHighlightName = "RoRTracker_TrackedHighlight";
-        static readonly Color TrackedHighlightColor = new Color(0.85f, 0.65f, 0.13f, 0.35f); // color is amber currently but could be different OR a different indicator entirely
+        const string TrackingSummaryName = "RoRTracker_TrackingSummary";
+        const string ChallengesCategoryToken = "LOGBOOK_CATEGORY_ACHIEVEMENTS";
+        static readonly Color TrackedHighlightColor = new Color(0.8f, 0.475f, 0.655f, 0.35f);
 
-        // flag for wrapping the categories
-        bool categoriesWrapped = false;
         readonly Dictionary<GameObject, UnityAction> trackedTileListeners = new Dictionary<GameObject, UnityAction>();
 
         //The Awake() method is run at the very start of the Unity Lifecycle when the game is initialized.
@@ -54,15 +57,12 @@ namespace RoRTracker
             On.RoR2.UI.HUD.DeactivateScoreboard += HUD_DeactivateScoreboard;
 
             //our mod should fire when you view Challenges in the Logbook
-            On.RoR2.UI.LogBook.CategoryDef.InitializeChallenge += CatergoriyDef_InitializeChallenge;
+            On.RoR2.UI.LogBook.CategoryDef.InitializeChallenge += CategoryDef_InitializeChallenge;
 
             //BuildEntriesPage re-derives disablePointerClick/disableGamepadClick itself, after calling
             //initializeElementGraphics, based on per-slot logic that can undo the re-enable we do there
             //(see the comment on the hook itself). Re-apply it once more after BuildEntriesPage fully finishes.
             On.RoR2.UI.LogBook.LogBookController.BuildEntriesPage += LogBookController_BuildEntriesPage;
-
-            //TODO: maybe we want to create a new logbook page or similar that is just for the pending unlocks so you can view that from the main menu as well?
-            // ^^ currently this implementation just lets you select achievements directly for tracking as a proof of concept
         }
 
         #region Hooks
@@ -73,7 +73,7 @@ namespace RoRTracker
             trackedChallenges.TryUntrack(achievementName);
         }
 
-        private void CatergoriyDef_InitializeChallenge(On.RoR2.UI.LogBook.CategoryDef.orig_InitializeChallenge orig, GameObject tileObject, RoR2.UI.LogBook.Entry entry, RoR2.UI.LogBook.EntryStatus status, UserProfile viewerProfile)
+        private void CategoryDef_InitializeChallenge(On.RoR2.UI.LogBook.CategoryDef.orig_InitializeChallenge orig, GameObject tileObject, RoR2.UI.LogBook.Entry entry, RoR2.UI.LogBook.EntryStatus status, UserProfile viewerProfile)
         {
             orig.Invoke(tileObject, entry, status, viewerProfile);
             ApplyAchievementTileTracking(tileObject, entry, status);
@@ -109,6 +109,20 @@ namespace RoRTracker
         {
             GameObject page = orig.Invoke(self, (RoR2.UI.LogBook.LogBookController.NavigationPageInfo)navigationPageInfo);
 
+            // capture the parent element which we will add our own UI to
+            Transform container = self.hoverLanguageTextMeshController.transform.parent; // ContentSizeFitter which holds the box shown on hover
+            Transform grandparent = container.parent;
+
+            var cats = RoR2.UI.LogBook.LogBookController.categories;
+            int currentIndex = self.desiredCategoryIndex; // the index is actually one behind, desiredCategoryIndex is the page we just selected to go to so use that one
+            string token = (currentIndex >= 0 && currentIndex < cats.Length) ? cats[currentIndex].nameToken : "out of range";
+            bool isChallengeCategory = token == ChallengesCategoryToken;
+
+            trackingSummaryRow = FindOrCreateTrackingSummary(grandparent, container);
+            UpdateTrackingSummaryText(trackingSummaryRow);
+
+            trackingSummaryRow.SetActive(isChallengeCategory); // only show the tracking summary when viewing the Challenges category
+
             foreach (GameObject tileObject in trackedTileListeners.Keys)
             {
                 if (tileObject == null)
@@ -126,6 +140,51 @@ namespace RoRTracker
         }
         #endregion
 
+        private GameObject FindOrCreateTrackingSummary(Transform parent, Transform container)
+        {
+            // find the existing one and return it if it exists, otherwise create a new one
+            Transform existing = parent.Find(TrackingSummaryName);
+            if (existing != null)
+                return existing.gameObject;
+
+            // create the row container
+            GameObject row = new GameObject(TrackingSummaryName, typeof(RectTransform));
+            row.transform.SetParent(parent, false);
+            row.transform.SetSiblingIndex(container.GetSiblingIndex());
+
+            LayoutElement rowLayout = row.AddComponent<LayoutElement>();
+            rowLayout.ignoreLayout = true; // the container's VerticalLayoutGroup won't stack or move us
+
+            RectTransform rt = (RectTransform)row.transform;
+            rt.anchorMin = new Vector2(0f, 1f);       // anchor to the container's top-left...
+            rt.anchorMax = new Vector2(1f, 1f);       // ...and top-right, so we stretch across its width
+            rt.pivot = new Vector2(0.5f, 0f);         // our reference point is our own bottom edge
+            rt.anchoredPosition = new Vector2(0f, 15f); // bottom edge sits 15px above the container's top
+            rt.sizeDelta = new Vector2(0f, 30f);      // width: same as the anchors span; height: 30
+
+            HorizontalLayoutGroup rowGroup = row.AddComponent<HorizontalLayoutGroup>();
+            rowGroup.childControlWidth = true;
+            rowGroup.childControlHeight = true;
+            rowGroup.childForceExpandWidth = false;
+            rowGroup.spacing = 8f;
+
+            // the counter text, as a child of the row
+            GameObject counterGO = new GameObject("Counter", typeof(RectTransform));
+            counterGO.transform.SetParent(row.transform, false);
+            TextMeshProUGUI counterText = counterGO.AddComponent<TextMeshProUGUI>();
+            counterText.fontSize = 24f;
+            counterText.color = TrackedHighlightColor;
+            counterText.enableWordWrapping = false;
+
+            return row;
+        }
+
+        private void UpdateTrackingSummaryText(GameObject row)
+        {
+            TextMeshProUGUI counterText = row.transform.Find("Counter").GetComponent<TextMeshProUGUI>();
+            counterText.text = $"{trackedChallenges.TrackedIds.Count}/{TrackedChallenges.MaxTracked} Challenges Tracked";
+        }
+
         /// <summary>
         /// Applies our clickability and highlight logic to a Logbook achievement tile, if it's an achievement tile and not already completed.
         /// </summary>
@@ -139,11 +198,12 @@ namespace RoRTracker
 
             // if achievement is already completed
             if (status == RoR2.UI.LogBook.EntryStatus.Available || status == RoR2.UI.LogBook.EntryStatus.New)
-                return; // TO-DO maybe this will cause a bug with tracked achievements being impossible to untrack once comlpeted?
+                return;
 
             string achievementId = achievementDef.identifier;
 
             RoR2.UI.HGButton button = tileObject.GetComponent<RoR2.UI.HGButton>();
+            
             // we want to re-enable the button's clickability, since vanilla disables it for completed achievements
             if (button != null)
             {
@@ -171,6 +231,7 @@ namespace RoRTracker
             {
                 trackedChallenges.TryUntrack(achievementId);
             }
+            
             // else we'lltry to track, if returns false then we've already hit max
             else if (!trackedChallenges.TryTrack(achievementId))
             {
@@ -179,6 +240,12 @@ namespace RoRTracker
             }
 
             ApplyTrackedHighlight(tileObject, achievementId);
+
+            // make sure we update our counter on click
+            if (trackingSummaryRow != null)
+            {
+                UpdateTrackingSummaryText(trackingSummaryRow);
+            }
         }
 
         /// <summary>
@@ -193,13 +260,16 @@ namespace RoRTracker
                 highlight = new GameObject(TrackedHighlightName);
                 highlight.transform.SetParent(tileObject.transform, false);
 
+                LayoutElement le = highlight.AddComponent<LayoutElement>();
+                le.ignoreLayout = true; // the tile's layout group leaves us alone, so our anchors apply
+
                 // highlight the selected tile
-                RectTransform rt = highlight.AddComponent<RectTransform>();
+                RectTransform rt = (RectTransform)highlight.transform;
                 rt.anchorMin = Vector2.zero;
                 rt.anchorMax = Vector2.one;
                 rt.offsetMin = Vector2.zero;
                 rt.offsetMax = Vector2.zero;
-                highlight.transform.SetAsLastSibling(); // TODO this is supposed to make the highlight render on top of the tile but it doesn't work
+                highlight.transform.SetAsLastSibling();
 
                 Image newImage = highlight.AddComponent<Image>();
                 newImage.raycastTarget = false;
