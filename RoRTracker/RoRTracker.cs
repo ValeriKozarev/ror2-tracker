@@ -1,11 +1,8 @@
 using BepInEx;
 using RoR2;
-using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using TMPro;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
 using UnityEngine.Events;
 using UnityEngine.UI;
 
@@ -108,6 +105,9 @@ namespace RoRTracker
         private GameObject LogBookController_BuildEntriesPage(On.RoR2.UI.LogBook.LogBookController.orig_BuildEntriesPage orig, RoR2.UI.LogBook.LogBookController self, object navigationPageInfo)
         {
             GameObject page = orig.Invoke(self, (RoR2.UI.LogBook.LogBookController.NavigationPageInfo)navigationPageInfo);
+
+            // clean up stale data
+            PruneDestroyedTiles();
 
             // capture the parent element which we will add our own UI to
             Transform container = self.hoverLanguageTextMeshController.transform.parent; // ContentSizeFitter which holds the box shown on hover
@@ -281,6 +281,17 @@ namespace RoRTracker
 
             Image highlightImage = highlight.GetComponent<Image>();
             highlightImage.color = trackedChallenges.IsTracked(achievementId) ? TrackedHighlightColor : Color.clear;
+        }
+
+        private void PruneDestroyedTiles()
+        {
+            List<GameObject> dead = new List<GameObject>();
+            foreach (GameObject tile in trackedTileListeners.Keys)
+                if (tile == null)          // Unity's == : true for destroyed objects
+                    dead.Add(tile);
+
+            foreach (GameObject tile in dead)
+                trackedTileListeners.Remove(tile);
         }
 
         /// <summary>
